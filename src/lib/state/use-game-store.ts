@@ -57,8 +57,6 @@ export const useGameStore = create<GameStore>((set) => ({
       game.header(
         "Event",
         `Chess Tutoring ${date.getFullYear()}`,
-        "Site",
-        navigator.userAgent,
         "Date",
         `${date.getFullYear()}.${date.getMonth() + 1 < 10 ? `0` : ``}${date.getMonth() + 1}.${
           date.getDate() < 10 ? `0` : ``

@@ -38,13 +38,33 @@ export default function Tutor({ messages, stop, commit, undo, turn, analyze, isL
       </header>
       <div ref={scrollRef} className="flex flex-col py-5 mt-2 overflow-y-scroll min-h-[60%] max-h-[60%]">
         <ol>
-          {messages
-            .filter((message) => message.role === "assistant")
-            .map((message, index, array) => (
-              <li key={index} className={index !== array.length - 1 ? "mb-5" : ""}>
+          {messages.map((message, index) => {
+            if (message.role === "user") {
+              return (
+                <li key={index} className="mb-5 flex justify-end">
+                  <div className="user-message rounded-sm p-4 border-blue-400 border-2 max-w-[90%] whitespace-pre-wrap break-words text-sm">
+                    {message.content as string}
+                  </div>
+                </li>
+              );
+            }
+
+            if (message.role === "system") {
+              return (
+                <li key={index} className="mb-5 text-center">
+                  <span className="inline-block rounded-sm p-2 border-stone-400 border-2 text-sm font-bold">
+                    {message.content as string}
+                  </span>
+                </li>
+              );
+            }
+
+            return (
+              <li key={index} className={index !== messages.length - 1 ? "mb-5" : ""}>
                 <MessageBubble content={message.content as string} />
               </li>
-            ))}
+            );
+          })}
         </ol>
       </div>
       <div className="flex flex-col">
@@ -53,14 +73,18 @@ export default function Tutor({ messages, stop, commit, undo, turn, analyze, isL
           <button
             disabled={gameOver || turn === "w"}
             onClick={commit}
-            className={`p-2 ${turn === "w" ? `bg-slate-600` : `bg-orange-600`} h-[40px] mr-5`}
+            className={`p-2 ${
+              turn === "w" ? `bg-slate-600 cursor-not-allowed opacity-60` : `bg-orange-600 cursor-pointer`
+            } h-[40px] mr-5`}
           >
             Commit
           </button>
           <button
             disabled={gameOver || turn === "w"}
             onClick={undo}
-            className={`p-2 ${turn === "w" ? `bg-slate-600` : `bg-blue-400`} mr-5 h-[40px]`}
+            className={`p-2 ${
+              turn === "w" ? `bg-slate-600 cursor-not-allowed opacity-60` : `bg-blue-400 cursor-pointer`
+            } mr-5 h-[40px]`}
           >
             Undo
           </button>
@@ -68,7 +92,11 @@ export default function Tutor({ messages, stop, commit, undo, turn, analyze, isL
             disabled={gameOver || (autogenerateCommentary && !isLoading)}
             onClick={isLoading ? stop : analyze}
             className={`flex items-center justify-center align-middle p-2 ${
-              autogenerateCommentary && !isLoading ? `bg-slate-600` : isLoading ? `bg-orange-600` : `bg-blue-400`
+              autogenerateCommentary && !isLoading
+                ? `bg-slate-600 cursor-not-allowed opacity-60`
+                : isLoading
+                  ? `bg-orange-600 cursor-pointer`
+                  : `bg-blue-400 cursor-pointer`
             } h-[40px]`}
             title={isLoading ? "Stop generating text" : "Get analysis"}
           >

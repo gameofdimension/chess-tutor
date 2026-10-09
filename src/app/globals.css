@@ -25,6 +25,10 @@ body {
   text-decoration: underline;
 }
 
+.user-message {
+  background: color-mix(in srgb, var(--foreground) 6%, transparent);
+}
+
 .coach-message code {
   background: var(--foreground);
   color: var(--background);

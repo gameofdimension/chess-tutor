@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import { Chessboard } from "react-chessboard";
 import { useChat } from "ai/react";
 import { Mosaic } from "react-loading-indicators";
+import type { Chess } from "chess.js";
 import type { CustomSquareStyles, Piece, Square } from "react-chessboard/dist/chessboard/types";
 
 import Tutor from "./tutor";
@@ -43,14 +44,20 @@ export default function Board() {
   const [selectedPiece, setSelectedPiece] = useState<Piece | null>(null);
   const [possibleMoves, setPossibleMoves] = useState<CustomSquareStyles>({});
 
+  // movetext without the PGN header tags (event/site/elo...) - the headers are
+  // noise for the coach and leak the userAgent header to the LLM provider
+  const movetextOf = (g: Chess): string =>
+    g
+      .pgn({ newline: " " })
+      .replace(/\[[^\]]*\]\s*/g, "")
+      .trim();
+
   const analyzeBoard = (): void => {
     stop();
 
     append({
       role: "user",
-      content: `Please analyze the current state of the game.\n\n${game
-        .pgn({ newline: ":" })
-        .replace("::", ": ")}\n\nLegal Moves: ${game.moves().join(", ")}`,
+      content: `Please analyze the current state of the game.\n\n${movetextOf(game)}\n\nLegal Moves: ${game.moves().join(", ")}`,
     });
   };
 
@@ -74,7 +81,7 @@ export default function Board() {
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
-              position: game.pgn(),
+              position: movetextOf(game),
               legalMoves: game.moves(),
               board: game.ascii(),
             }),
@@ -92,7 +99,7 @@ export default function Board() {
 
                 if (autogenerateCommentary) {
                   append({
-                    content: `My opponent played ${move}.\n\n${game.pgn({ newline: ":" }).replace("::", ": ")}`,
+                    content: `My opponent played ${move}.\n\n${movetextOf(game)}`,
                     role: "user",
                   });
                 }
@@ -109,7 +116,7 @@ export default function Board() {
 
                 if (autogenerateCommentary) {
                   append({
-                    content: `My opponent played ${newMove.san}.\n\n${game.pgn({ newline: ":" }).replace("::", ": ")}`,
+                    content: `My opponent played ${newMove.san}.\n\n${movetextOf(game)}`,
                     role: "user",
                   });
                 }
@@ -128,31 +135,31 @@ export default function Board() {
         if (game.isCheckmate()) {
           setGameOverState("Checkmate");
           append({
-            content: `Checkmate.\n\n${game.pgn({ newline: ":" }).replace("::", ": ")}`,
+            content: `Checkmate.\n\n${movetextOf(game)}`,
             role: "system",
           });
         } else if (game.isDraw()) {
           setGameOverState("Draw");
           append({
-            content: `Draw.\n\n${game.pgn({ newline: ":" }).replace("::", ": ")}`,
+            content: `Draw.\n\n${movetextOf(game)}`,
             role: "system",
           });
         } else if (game.isStalemate()) {
           setGameOverState("Stalemate");
           append({
-            content: `Stalemate.\n\n${game.pgn({ newline: ":" }).replace("::", ": ")}`,
+            content: `Stalemate.\n\n${movetextOf(game)}`,
             role: "system",
           });
         } else if (game.isThreefoldRepetition()) {
           setGameOverState("Ended by Repetition");
           append({
-            content: `Ended by Repetition.\n\n${game.pgn({ newline: ":" }).replace("::", ": ")}`,
+            content: `Ended by Repetition.\n\n${movetextOf(game)}`,
             role: "system",
           });
         } else if (game.isDrawByFiftyMoves()) {
           setGameOverState("Draw by Fifty Moves Rule");
           append({
-            content: `Draw by Fifty Moves Rule.\n\n${game.pgn({ newline: ":" }).replace("::", ": ")}`,
+            content: `Draw by Fifty Moves Rule.\n\n${movetextOf(game)}`,
             role: "system",
           });
         }
@@ -261,6 +268,15 @@ export default function Board() {
 
   const onSquareClick = (square: Square, piece?: Piece): void => {
     if (moveFrom === null) {
+      // the player controls white on their turn only - left-clicking
+      // opponent pieces must never move them (right-click inspects instead)
+      const pieceInfo = game.get(square);
+
+      if (game.turn() !== "w" || pieceInfo?.color !== "w") {
+        setPlayState("choosing");
+        return;
+      }
+
       const canMove = getMoveOptions(square);
 
       if (canMove) {
@@ -271,6 +287,15 @@ export default function Board() {
         setPlayState("choosing");
       }
     } else if (moveTo === null) {
+      // clicking the selected piece again deselects it
+      if (square === moveFrom) {
+        setMoveFrom(null);
+        setSelectedPiece(null);
+        setPossibleMoves({});
+        setPlayState("choosing");
+        return;
+      }
+
       const moves = game.moves({ square: moveFrom, verbose: true });
 
       const isValidMove = moves.find((move) => move.from === moveFrom && move.to === square);
@@ -292,7 +317,7 @@ export default function Board() {
           append({
             content: `I moved the ${convertPieceName(selectedPiece)} ${moveFrom} to ${square} by playing: ${game
               .history()
-              .at(-1)}.\n\n${game.pgn({ newline: ":" }).replace("::", ": ")}\n\nLegal Moves: ${game.moves().join(", ")}`,
+              .at(-1)}.\n\n${movetextOf(game)}\n\nLegal Moves: ${game.moves().join(", ")}`,
             role: "user",
           });
         }
@@ -327,9 +352,7 @@ export default function Board() {
             game.turn() === "w"
               ? `, but I'm not sure where I should put it.`
               : `, but I'm not sure where they might place it. Does moving this piece seem likely?`
-          }${game.history().length === 0 ? ` This is my opening move.` : ``}\n\n${game
-            .pgn({ newline: ":" })
-            .replace("::", ": ")}\n\nLegal Moves for ${square}: ${game.moves({ square, piece: pieceInfo.type }).join(", ")}`,
+          }${game.history().length === 0 ? ` This is my opening move.` : ``}\n\n${movetextOf(game)}\n\nLegal Moves for ${square}: ${game.moves({ square, piece: pieceInfo.type }).join(", ")}`,
           role: "user",
         });
       }
@@ -342,13 +365,30 @@ export default function Board() {
     }
   };
 
-  useEffect(() => {
+  const updateBoardWidth = (): void => {
     if (containerRef.current) {
-      setBoardWidth(containerRef.current.clientHeight);
+      setBoardWidth(Math.min(containerRef.current.clientHeight, containerRef.current.clientWidth));
     }
+  };
+
+  useEffect(() => {
+    updateBoardWidth();
+
+    window.addEventListener("resize", updateBoardWidth);
 
     newGame();
+
+    return () => window.removeEventListener("resize", updateBoardWidth);
   }, []);
+
+  const lastMove = game.history({ verbose: true }).at(-1);
+
+  const lastMoveStyles: CustomSquareStyles = lastMove
+    ? {
+        [lastMove.from]: { background: "rgba(255, 213, 79, 0.45)" },
+        [lastMove.to]: { background: "rgba(255, 213, 79, 0.55)" },
+      }
+    : {};
 
   return (
     <>
@@ -359,7 +399,7 @@ export default function Board() {
             position={game.fen()}
             onSquareRightClick={onSquareRightClick}
             onSquareClick={onSquareClick}
-            customSquareStyles={{ ...possibleMoves }}
+            customSquareStyles={{ ...lastMoveStyles, ...possibleMoves }}
             boardWidth={boardWidth}
             customBoardStyle={{
               margin: "auto",
