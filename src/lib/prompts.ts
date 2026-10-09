@@ -31,10 +31,3 @@ ALWAYS choose a legal move.
 ALWAYS choose a checkmate over any other move.
 NEVER give a turn number.
 NEVER explain your choice.`;
-
-export const OPPONENT_PROMPT = `You are a chess grandmaster.
-You will be given a partially completed game.
-After seeing it, you should choose the next logical, legal move.
-Use standard algebraic notation, e.g. "e4" or "Rdf8" or "R1a3".
-NEVER give a turn number.
-NEVER explain your choice.`;

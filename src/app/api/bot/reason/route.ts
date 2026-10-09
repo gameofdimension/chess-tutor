@@ -2,7 +2,7 @@ import { CoreMessage, generateText } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 
 import { OPPONENT_REASONING_PROMPT } from "../../../../lib/prompts";
-import { API_CONFIG } from "../../../../lib/config";
+import { API_CONFIG, OPPONENT_MODEL } from "../../../../lib/config";
 
 export async function POST(req: Request) {
   const { position, legalMoves, board } = await req.json();
@@ -34,7 +34,7 @@ export async function POST(req: Request) {
     // there's some anectodal evidence that the "gpt-3.5-turbo-instruct" model
     // is actually pretty good at understanding chess PGN notation and playing
     // valid moves that make sense
-    model: openai.chat("gpt-4o"),
+    model: openai.chat(OPPONENT_MODEL),
     system: OPPONENT_REASONING_PROMPT,
     messages,
     temperature: 0.57,

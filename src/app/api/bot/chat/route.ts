@@ -2,7 +2,7 @@ import { streamText } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 
 import { ANALYZER_PROMPT } from "../../../../lib/prompts";
-import { API_CONFIG } from "../../../../lib/config";
+import { API_CONFIG, COACH_MODEL } from "../../../../lib/config";
 
 export async function POST(req: Request) {
   const { messages } = await req.json();
@@ -10,7 +10,7 @@ export async function POST(req: Request) {
   const openai = createOpenAI(API_CONFIG);
 
   const result = await streamText({
-    model: openai.chat("gpt-4o", {
+    model: openai.chat(COACH_MODEL, {
       structuredOutputs: true,
     }),
     system: ANALYZER_PROMPT,
