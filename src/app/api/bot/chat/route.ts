@@ -10,9 +10,9 @@ export async function POST(req: Request) {
   const openai = createOpenAI(API_CONFIG);
 
   const result = await streamText({
-    model: openai.chat(COACH_MODEL, {
-      structuredOutputs: true,
-    }),
+    // no structuredOutputs: DeepSeek only supports json_object response
+    // format, not OpenAI's json_schema
+    model: openai.chat(COACH_MODEL),
     system: ANALYZER_PROMPT,
     messages: [messages.at(-1)],
   });

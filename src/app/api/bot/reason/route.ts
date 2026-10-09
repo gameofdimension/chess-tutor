@@ -30,27 +30,36 @@ export async function POST(req: Request) {
     });
   }
 
-  const results = await generateText({
-    // there's some anectodal evidence that the "gpt-3.5-turbo-instruct" model
-    // is actually pretty good at understanding chess PGN notation and playing
-    // valid moves that make sense
-    model: openai.chat(OPPONENT_MODEL),
-    system: OPPONENT_REASONING_PROMPT,
-    messages,
-    temperature: 0.57,
-    // this is slightly larger than the likely maximum tokens for a legal move
-    maxTokens: 6,
-  });
+  const requestMove = () =>
+    generateText({
+      model: openai.chat(OPPONENT_MODEL, {
+        // deepseek-flash thinks by default; "low" is enough for picking a move
+        // from the legal-move list and keeps latency/cost down
+        reasoningEffort: "low",
+      }),
+      system: OPPONENT_REASONING_PROMPT,
+      messages,
+      temperature: 0.57,
+      // reasoning models spend tokens on thinking before the visible move,
+      // so this needs enough headroom for both (a bare move is ~2 tokens)
+      maxTokens: 2048,
+    });
 
-  // @ts-expect-error the response format seems to have content as an Array with an object with a text property
-  let move = results.response.messages[0].content[0].text.trim();
+  // the model occasionally returns empty content (all budget spent thinking);
+  // retry once before falling back to the client's random move
+  let results = await requestMove();
+  if (!results.text.trim()) {
+    results = await requestMove();
+  }
+
+  let move = results.text.trim();
 
   if (move.includes(".")) {
     move = move.replace(/\./g, "").trim();
   }
 
   if (move.includes(" ")) {
-    move = move.split(" ").at(-1);
+    move = move.split(" ").at(-1) ?? move;
   }
 
   return Response.json({ move });
