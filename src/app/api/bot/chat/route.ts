@@ -58,10 +58,12 @@ export async function POST(req: Request) {
   // timeout, so the player knows the answer may be incomplete
   const encoder = new TextEncoder();
 
+  // shared by start() and cancel(): the client can drop the connection
+  // mid-stream (reload/abort) and cancel() must be able to flag it
+  let closed = false;
+
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      let closed = false;
-
       const safeEnqueue = (text: string) => {
         if (closed) {
           return;

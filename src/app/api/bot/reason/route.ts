@@ -77,21 +77,20 @@ export async function POST(req: Request) {
 
   const requestMove = (attempt: number) => {
     const startedAt = Date.now();
+
     return generateText({
       model: openai.chat(OPPONENT_MODEL, {
-        // DeepSeek supports reasoning_effort "none" (no thinking phase);
-        // picking a move from an explicit legal-move list doesn't need it
-        // and it cuts latency from seconds to under a second. The SDK's
-        // type only lists low/medium/high, hence the cast.
-        reasoningEffort: "none" as "low",
+        // thinking on for stronger play; complex positions can spend a few
+        // thousand reasoning tokens before the move, costing seconds of
+        // latency
+        reasoningEffort: "low",
       }),
       system: OPPONENT_REASONING_PROMPT,
       messages,
       temperature: 0.57,
-      // reasoning models spend tokens on thinking before the visible move;
-      // complex positions can think for thousands of tokens, so keep generous
-      // headroom (billing is usage-based, the cap only prevents truncation)
-      maxTokens: 8192,
+      // reasoning tokens count against the cap - generous headroom keeps
+      // deep calculations from truncating the move itself
+      maxTokens: 65536,
     }).then((result) => {
       const seconds = ((Date.now() - startedAt) / 1000).toFixed(1);
       console.log(
@@ -112,7 +111,16 @@ export async function POST(req: Request) {
   let move = "";
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    const result = await requestMove(attempt);
+    let result;
+
+    try {
+      result = await requestMove(attempt);
+    } catch (e) {
+      // transient provider/network errors (e.g. read ETIMEDOUT) are worth
+      // another attempt before giving up
+      console.warn(`[opponent] attempt=${attempt} request error:`, e);
+      continue;
+    }
 
     let candidate = result.text.trim();
 

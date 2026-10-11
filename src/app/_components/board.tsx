@@ -146,14 +146,16 @@ export default function Board() {
               board: game.ascii(),
             }),
             // bound the wait: a hung request would otherwise keep the
-            // "对手思考中" overlay over the board forever (AbortSignal.timeout
-            // is absent on Safari < 16 - fall back to no signal there)
-            signal: typeof AbortSignal !== "undefined" && AbortSignal.timeout ? AbortSignal.timeout(30_000) : undefined,
+            // "对手思考中" overlay over the board forever. The cap is generous
+            // because thinking mode can legitimately spend a minute on hard
+            // positions (AbortSignal.timeout is absent on Safari < 16)
+            signal: typeof AbortSignal !== "undefined" && AbortSignal.timeout ? AbortSignal.timeout(150_000) : undefined,
           })
             .then(async (response) => {
-              if (response.ok) {
-                return response.json();
+              if (!response.ok) {
+                throw new Error(`对手路由 HTTP ${response.status}`);
               }
+              return response.json();
             })
             .then(({ move }) => {
               console.log("MOVE: ", move);
