@@ -106,11 +106,16 @@ export default function Evaluation({ position, evaluation }: EvaluationProps) {
           width={chartWidth}
           height={96}
           margin={{ top: 6, bottom: 6, left: 8, right: 8 }}
+          // the sparkline lives in a 96px strip: hide axis numbers (they
+          // clip into unreadable fragments at this size), grid and legend
+          legend={{ hidden: true }}
+          disableAxisListener
           xAxis={[
             {
               data: evaluation.map((_, index) => index),
               disableLine: true,
               disableTicks: true,
+              tickLabelStyle: { display: "none" },
             },
           ]}
           yAxis={[
@@ -119,8 +124,12 @@ export default function Evaluation({ position, evaluation }: EvaluationProps) {
               max: Math.max(Math.max(...evaluation), 1) + 1,
               disableLine: true,
               disableTicks: true,
+              tickLabelStyle: { display: "none" },
             },
           ]}
+          slotProps={{
+            popper: { sx: { display: "none" } },
+          }}
         />
       </div>
     </div>

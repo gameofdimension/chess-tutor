@@ -61,6 +61,7 @@ export default function Board() {
   const [moveTo, setMoveTo] = useState<Square | null>(null);
   const [selectedPiece, setSelectedPiece] = useState<Piece | null>(null);
   const [possibleMoves, setPossibleMoves] = useState<CustomSquareStyles>({});
+  const [promotionPrompt, setPromotionPrompt] = useState<{ from: Square; to: Square } | null>(null);
   const movesScrollRef = useRef<HTMLDivElement>(null);
 
   // coach request queue: a generation already in flight is never interrupted;
@@ -144,6 +145,10 @@ export default function Board() {
               legalMoves: game.moves(),
               board: game.ascii(),
             }),
+            // bound the wait: a hung request would otherwise keep the
+            // "对手思考中" overlay over the board forever (AbortSignal.timeout
+            // is absent on Safari < 16 - fall back to no signal there)
+            signal: typeof AbortSignal !== "undefined" && AbortSignal.timeout ? AbortSignal.timeout(30_000) : undefined,
           })
             .then(async (response) => {
               if (response.ok) {
@@ -153,17 +158,15 @@ export default function Board() {
             .then(({ move }) => {
               console.log("MOVE: ", move);
 
+              let san = "";
+
               try {
                 game.move(move);
-
-                // automatic commentary on the full round (queues if another
-                // generation is still in flight); the opponent's reply is
-                // last, the player's move second-to-last
-                const history = game.history();
-                const myMove = history.at(-2) ?? "？";
-                submitToCoach(`我走了 ${myMove}，对手回了 ${move}。\n\n${positionContextOf(game)}\n\nLegal Moves: ${game.moves().join(", ")}`);
+                san = move;
               } catch (e) {
-                console.error(e);
+                // handled fallback: warn (not error) so the dev overlay
+                // does not flag it as a crash
+                console.warn("opponent move rejected, falling back to random:", e);
 
                 const moves = game.moves({ verbose: true });
 
@@ -172,54 +175,85 @@ export default function Board() {
                 console.log("GENERATING RANDOM MOVE: ", newMove);
 
                 game.move(newMove);
-
-                const history = game.history();
-                const myMove = history.at(-2) ?? "？";
-                submitToCoach(`我走了 ${myMove}，对手回了 ${newMove.san}。\n\n${positionContextOf(game)}\n\nLegal Moves: ${game.moves().join(", ")}`);
+                san = newMove.san;
               }
+
+              if (game.isGameOver()) {
+                endGameByOpponent(san);
+                return;
+              }
+
+              // automatic commentary on the full round (queues if another
+              // generation is still in flight); the opponent's reply is
+              // last, the player's move second-to-last
+              const history = game.history();
+              const myMove = history.at(-2) ?? "？";
+              submitToCoach(`我走了 ${myMove}，对手回了 ${san}。\n\n${positionContextOf(game)}\n\nLegal Moves: ${game.moves().join(", ")}`);
             })
             .catch((e) => {
-              console.error(e);
+              // request failed or timed out: the overlay clears in finally,
+              // the turn stays with the opponent, and Commit can be pressed
+              // again to retry
+              console.warn("opponent request failed:", e);
+              append({
+                id: `opponent-error-${Date.now()}`,
+                role: "system",
+                content: "⚠️ 对手响应失败或超时。再点一次 Commit 即可重试。",
+              });
             })
             .finally(() => {
               setComputerThinking(false);
             });
         }
       } else {
-        setGameOver(true);
-
-        if (game.isCheckmate()) {
-          setGameOverState("将死");
-          append({
-            content: `将死。\n\n${positionContextOf(game)}`,
-            role: "system",
-          });
-        } else if (game.isDraw()) {
-          setGameOverState("和棋");
-          append({
-            content: `和棋。\n\n${positionContextOf(game)}`,
-            role: "system",
-          });
-        } else if (game.isStalemate()) {
-          setGameOverState("逼和");
-          append({
-            content: `逼和。\n\n${positionContextOf(game)}`,
-            role: "system",
-          });
-        } else if (game.isThreefoldRepetition()) {
-          setGameOverState("三次重复和棋");
-          append({
-            content: `三次重复和棋。\n\n${positionContextOf(game)}`,
-            role: "system",
-          });
-        } else if (game.isDrawByFiftyMoves()) {
-          setGameOverState("五十回合规则和棋");
-          append({
-            content: `五十回合规则和棋。\n\n${positionContextOf(game)}`,
-            role: "system",
-          });
-        }
+        endGameByPlayer();
       }
+    }
+  };
+
+  // the player's own committed move ended the game
+  const endGameByPlayer = (): void => {
+    setGameOver(true);
+
+    const lastMove = game.history().at(-1) ?? "";
+
+    if (game.isCheckmate()) {
+      setGameOverState("将死获胜");
+      append({ content: `我走了 ${lastMove}，将死对手！`, role: "system" });
+    } else if (game.isStalemate()) {
+      setGameOverState("逼和");
+      append({ content: `我走了 ${lastMove}，形成逼和。`, role: "system" });
+    } else if (game.isThreefoldRepetition()) {
+      setGameOverState("三次重复和棋");
+      append({ content: `走了 ${lastMove} 之后三次重复，和棋。`, role: "system" });
+    } else if (game.isDrawByFiftyMoves()) {
+      setGameOverState("五十回合规则和棋");
+      append({ content: `走了 ${lastMove} 之后触发五十回合规则，和棋。`, role: "system" });
+    } else if (game.isDraw()) {
+      setGameOverState("和棋");
+      append({ content: `走了 ${lastMove} 之后和棋。`, role: "system" });
+    }
+  };
+
+  // the opponent's reply ended the game - detected after its move applies
+  const endGameByOpponent = (san: string): void => {
+    setGameOver(true);
+
+    if (game.isCheckmate()) {
+      setGameOverState("被将死告负");
+      append({ content: `对手走了 ${san}，将死了你。`, role: "system" });
+    } else if (game.isStalemate()) {
+      setGameOverState("逼和");
+      append({ content: `对手走了 ${san}，形成逼和。`, role: "system" });
+    } else if (game.isThreefoldRepetition()) {
+      setGameOverState("三次重复和棋");
+      append({ content: `对手走了 ${san} 之后三次重复，和棋。`, role: "system" });
+    } else if (game.isDrawByFiftyMoves()) {
+      setGameOverState("五十回合规则和棋");
+      append({ content: `对手走了 ${san} 之后触发五十回合规则，和棋。`, role: "system" });
+    } else if (game.isDraw()) {
+      setGameOverState("和棋");
+      append({ content: `对手走了 ${san} 之后和棋。`, role: "system" });
     }
   };
 
@@ -354,16 +388,50 @@ export default function Board() {
         setSelectedPiece(canMove ? piece ?? null : null);
         setPlayState(canMove ? "moving" : "choosing");
       } else {
+        // pawn reaching the last rank needs a promotion piece - chess.js
+        // throws without it, so ask before applying the move
+        if (game.get(moveFrom)?.type === "p" && square[1] === "8") {
+          setMoveTo(square);
+          setPossibleMoves({});
+          setPromotionPrompt({ from: moveFrom, to: square });
+          return;
+        }
+
         setMoveTo(square);
         setPlayState("moved");
         setPossibleMoves({});
 
-        game.move({ from: moveFrom, to: square });
+        try {
+          game.move({ from: moveFrom, to: square });
+        } catch (e) {
+          // never let a rejected move crash the React tree
+          console.warn("move rejected:", e);
+        }
 
         setMoveFrom(null);
         setMoveTo(null);
       }
     }
+  };
+
+  // apply a promotion chosen in the dialog
+  const applyPromotion = (piece: "q" | "r" | "b" | "n"): void => {
+    if (promotionPrompt === null) {
+      return;
+    }
+
+    try {
+      game.move({ from: promotionPrompt.from, to: promotionPrompt.to, promotion: piece });
+    } catch (e) {
+      console.warn("promotion move rejected:", e);
+    }
+
+    setPromotionPrompt(null);
+    setMoveFrom(null);
+    setMoveTo(null);
+    setSelectedPiece(null);
+    setPossibleMoves({});
+    setPlayState("moved");
   };
 
   const onSquareRightClick = (square: Square): void => {
@@ -481,6 +549,33 @@ export default function Board() {
               boxShadow: "0 18px 48px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.35)",
             }}
           />
+        )}
+
+        {promotionPrompt && (
+          <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/50">
+            <div className="paper rounded-xl border border-[#D8D0BC] p-5 text-center shadow-2xl">
+              <p className="mb-3 text-sm font-medium text-[#1F241F]">兵到底线了，升变为哪个棋子？</p>
+              <div className="flex justify-center gap-2">
+                {(
+                  [
+                    { piece: "q", glyph: "♕", label: "后" },
+                    { piece: "r", glyph: "♖", label: "车" },
+                    { piece: "b", glyph: "♗", label: "象" },
+                    { piece: "n", glyph: "♘", label: "马" },
+                  ] as const
+                ).map(({ piece, glyph, label }) => (
+                  <button
+                    key={piece}
+                    onClick={() => applyPromotion(piece)}
+                    className="flex w-16 cursor-pointer flex-col items-center rounded-lg border border-[#C9C0AA] bg-white py-2 transition-colors hover:bg-[#E7E0CE]"
+                  >
+                    <span className="text-2xl leading-none">{glyph}</span>
+                    <span className="mt-1 text-xs text-[#57503F]">{label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
         )}
 
         {computerThinking && (

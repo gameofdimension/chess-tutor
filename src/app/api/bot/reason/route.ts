@@ -4,8 +4,53 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { OPPONENT_REASONING_PROMPT } from "../../../../lib/prompts";
 import { API_CONFIG, OPPONENT_MODEL } from "../../../../lib/config";
 
+const MAX_ATTEMPTS = 3;
+
+// SAN move core: piece?, disambiguation?, capture?, target, promotion?
+// e.g. "Nbd5" -> (N, d5); "exd8=Q" -> (undefined pawn, d8, Q); "e4" -> (e4)
+const MOVE_CORE = /^([KQRBN])?(?:[a-h]|[1-8]|[a-h][1-8])?(x?)([a-h][1-8])(?:=?([QRBN]))?$/;
+
+const cleanSan = (san: string) => san.replace(/[+#!?]+/g, "").trim();
+
+/**
+ * Reconcile a model-produced move against the actual legal-move list:
+ * exact SAN first; otherwise match on (piece, target, promotion) ignoring
+ * disambiguation characters the model tends to omit (e.g. it writes "Nxd5"
+ * when the legal notation is "Nbd5"). Returns null when the move matches
+ * nothing or is ambiguous.
+ */
+const reconcileMove = (candidate: string, legalMoves: string[]): string | null => {
+  const cleaned = cleanSan(candidate);
+
+  if (legalMoves.includes(cleaned)) {
+    return cleaned;
+  }
+
+  const parsed = cleaned.match(MOVE_CORE);
+
+  if (!parsed) {
+    return null;
+  }
+
+  const [, piece, , target, promotion] = parsed;
+
+  const matches = legalMoves.filter((legal) => {
+    const parsedLegal = cleanSan(legal).match(MOVE_CORE);
+
+    if (!parsedLegal) {
+      return false;
+    }
+
+    return parsedLegal[1] === piece && parsedLegal[3] === target && parsedLegal[4] === promotion;
+  });
+
+  return matches.length === 1 ? matches[0] : null;
+};
+
 export async function POST(req: Request) {
   const { position, legalMoves, board } = await req.json();
+
+
 
   const openai = createOpenAI(API_CONFIG);
 
@@ -58,21 +103,46 @@ export async function POST(req: Request) {
     });
   };
 
-  // the model occasionally returns empty content (all budget spent thinking);
-  // retry once before falling back to the client's random move
-  let results = await requestMove(1);
-  if (!results.text.trim()) {
-    results = await requestMove(2);
-  }
+  const legalList: string[] = Array.isArray(legalMoves) ? legalMoves : [];
 
-  let move = results.text.trim();
+  // ask the model until it produces a move that reconciles against the
+  // legal-move list (handles empty responses AND notation mismatches like
+  // a missing disambiguator); the client's random fallback stays as the
+  // last resort if every attempt fails
+  let move = "";
 
-  if (move.includes(".")) {
-    move = move.replace(/\./g, "").trim();
-  }
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const result = await requestMove(attempt);
 
-  if (move.includes(" ")) {
-    move = move.split(" ").at(-1) ?? move;
+    let candidate = result.text.trim();
+
+    if (candidate.includes(".")) {
+      candidate = candidate.replace(/\./g, "").trim();
+    }
+
+    if (candidate.includes(" ")) {
+      candidate = candidate.split(" ").at(-1) ?? candidate;
+    }
+
+    if (!candidate) {
+      continue;
+    }
+
+    if (legalList.length === 0) {
+      // no list to validate against - trust the model verbatim
+      move = candidate;
+      break;
+    }
+
+    const matched = reconcileMove(candidate, legalList);
+
+    if (matched) {
+      console.log(`[opponent] attempt=${attempt} raw="${candidate}" -> legal "${matched}"`);
+      move = matched;
+      break;
+    }
+
+    console.log(`[opponent] attempt=${attempt} raw="${candidate}" matches no legal move - ${attempt < MAX_ATTEMPTS ? "retrying" : "giving up (client falls back to random)"}`);
   }
 
   return Response.json({ move });

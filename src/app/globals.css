@@ -29,8 +29,14 @@ body {
 }
 
 *::-webkit-scrollbar-thumb {
-  background: #c9c0aa;
+  /* near-invisible on the ivory paper; darkens on hover */
+  background: #e3dcc9;
   border-radius: 3px;
+}
+
+*::-webkit-scrollbar-thumb:hover,
+*:hover::-webkit-scrollbar-thumb {
+  background: #c9c0aa;
 }
 
 *::-webkit-scrollbar-track {
