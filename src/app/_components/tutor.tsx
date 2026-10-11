@@ -129,7 +129,7 @@ export default function Tutor({ messages, send, isLoading, pending }: TutorProps
           ref={textareaRef}
           rows={1}
           className="max-h-32 min-h-[38px] flex-1 resize-none rounded-lg border border-[#C9C0AA] bg-white px-3 py-2 text-sm leading-5 text-[#1F241F] outline-none transition placeholder:text-[#8A8271] focus:border-[#B0782C] focus:ring-2 focus:ring-[#B0782C]/20"
-          placeholder={isLoading ? "教练正在回复…现在发送的消息将排队" : "问教练任何问题（Enter 发送 / Shift+Enter 换行）v2"}
+          placeholder={isLoading ? "教练正在回复…现在发送的消息将排队" : "问教练任何问题（Enter 发送 / Shift+Enter 换行）"}
           value={input}
           onChange={(event) => {
             setInput(event.target.value);
