@@ -27,7 +27,7 @@ export default function Board() {
         {
           id: `coach-error-${Date.now()}`,
           role: "system" as const,
-          content: "⚠️ 教练评论请求失败（API 错误）。在下方输入框重新发送即可重试。",
+          content: `⚠️ 教练评论请求失败：${String(error.message || error).slice(0, 80)}。重新发送即可重试。`,
         },
       ]);
     },

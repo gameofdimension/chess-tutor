@@ -21,6 +21,9 @@ export default function Tutor({ messages, send, isLoading, pending }: TutorProps
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // manual IME composition tracking: Safari reports isComposing with
+  // different timing than Chrome, so keep our own flag
+  const composingRef = useRef(false);
   const [input, setInput] = useState("");
 
   useEffect(() => {
@@ -29,9 +32,7 @@ export default function Tutor({ messages, send, isLoading, pending }: TutorProps
     }
   }, [messages, pending]);
 
-  const submitQuestion = (event: React.FormEvent): void => {
-    event.preventDefault();
-
+  const sendCurrentInput = (): void => {
     const text = input.trim();
 
     if (!text) {
@@ -45,6 +46,11 @@ export default function Tutor({ messages, send, isLoading, pending }: TutorProps
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
+  };
+
+  const submitQuestion = (event: React.FormEvent): void => {
+    event.preventDefault();
+    sendCurrentInput();
   };
 
   return (
@@ -123,7 +129,7 @@ export default function Tutor({ messages, send, isLoading, pending }: TutorProps
           ref={textareaRef}
           rows={1}
           className="max-h-32 min-h-[38px] flex-1 resize-none rounded-lg border border-[#C9C0AA] bg-white px-3 py-2 text-sm leading-5 text-[#1F241F] outline-none transition placeholder:text-[#8A8271] focus:border-[#B0782C] focus:ring-2 focus:ring-[#B0782C]/20"
-          placeholder={isLoading ? "教练正在回复…现在发送的消息将排队" : "问教练任何问题，Enter 发送，Shift+Enter 换行…"}
+          placeholder={isLoading ? "教练正在回复…现在发送的消息将排队" : "问教练任何问题（Enter 发送 / Shift+Enter 换行）v2"}
           value={input}
           onChange={(event) => {
             setInput(event.target.value);
@@ -132,11 +138,29 @@ export default function Tutor({ messages, send, isLoading, pending }: TutorProps
             event.target.style.height = "auto";
             event.target.style.height = `${event.target.scrollHeight}px`;
           }}
+          onCompositionStart={() => {
+            composingRef.current = true;
+          }}
+          onCompositionEnd={() => {
+            // Safari fires compositionend before the final keydown - clear
+            // the flag slightly late so the confirming Enter stays ignored
+            setTimeout(() => {
+              composingRef.current = false;
+            }, 50);
+          }}
           onKeyDown={(event) => {
-            // Enter sends; Shift+Enter inserts a newline
-            if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+            // Enter sends; Shift+Enter inserts a newline. keyCode 229 covers
+            // IME keydowns on browsers that report it after isComposing
+            // flips back; direct call avoids form.requestSubmit (Safari < 16)
+            if (
+              event.key === "Enter" &&
+              !event.shiftKey &&
+              !composingRef.current &&
+              !event.nativeEvent.isComposing &&
+              event.keyCode !== 229
+            ) {
               event.preventDefault();
-              event.currentTarget.form?.requestSubmit();
+              sendCurrentInput();
             }
           }}
           disabled={gameOver}
