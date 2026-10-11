@@ -3,37 +3,62 @@
 @tailwind utilities;
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  /* chess-club palette: felt table, ivory scoresheet, ink */
+  --felt: #1e3a2f;
+  --felt-light: #2a4e3e;
+  --felt-dark: #162d24;
+  --ivory: #f2ede0;
+  --ivory-line: #d8d0bc;
+  --ink: #1f241f;
+  --ink-soft: #6b6455;
+  --wood: #b0782c;
+  --clock: #b3402a;
 }
 
 body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  color: var(--ivory);
+  background:
+    radial-gradient(ellipse 120% 90% at 50% 0%, var(--felt-light) 0%, var(--felt) 55%, var(--felt-dark) 100%);
+  background-attachment: fixed;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #c9c0aa;
+  border-radius: 3px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .coach-message a {
-  color: var(--foreground);
+  color: #7a4e10;
   text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
-.user-message {
-  background: color-mix(in srgb, var(--foreground) 6%, transparent);
+.coach-message a:hover {
+  color: #5e3b0a;
+}
+
+/* ivory scoresheet paper with a whisper of grain */
+.paper {
+  background-color: #f2ede0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
 }
 
 .coach-message code {
-  background: var(--foreground);
-  color: var(--background);
+  background: var(--ink);
+  color: var(--ivory);
   padding: 1px 2px;
-  border-radius: 5px
+  border-radius: 5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 .coach-message ul,
@@ -49,4 +74,9 @@ body {
 
 .coach-message ol {
   list-style-type: decimal;
+}
+
+.user-message {
+  background: #2f5a47;
+  color: var(--ivory);
 }

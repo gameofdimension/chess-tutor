@@ -2,24 +2,42 @@
 
 import { useEffect, useState, useRef } from "react";
 
-import { ChartContainer } from "@mui/x-charts/ChartContainer";
-import { LinePlot } from "@mui/x-charts/LineChart";
+import { LineChart } from "@mui/x-charts/LineChart";
 
 import Engine from "../../lib/engine";
 import { useGameStore } from "../../lib/state/use-game-store";
 
 export interface EvaluationProps {
   position: string;
-  width?: number;
   evaluation: number[];
 }
 
 const positionRegex = /Total evaluation\: (\-?\d+.?\d+) \([\w\s]+\)/;
 
-export default function Evaluation({ position, width, evaluation }: EvaluationProps) {
+export default function Evaluation({ position, evaluation }: EvaluationProps) {
   const { addEvaluation, game } = useGameStore();
   const [engine, setEngine] = useState<Engine>();
   const stockfish = useRef<Worker>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [chartWidth, setChartWidth] = useState(280);
+
+  // measure our own width - the component lives in the board-side strip now
+  useEffect(() => {
+    const element = containerRef.current;
+
+    if (!element) {
+      return;
+    }
+
+    const update = () => setChartWidth(element.clientWidth);
+
+    update();
+
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     /*!
@@ -27,7 +45,7 @@ export default function Evaluation({ position, width, evaluation }: EvaluationPr
      * License: GPL
      */
     // HACK: downloaded directly from the react-chessboard demo because I can't get it to compile
-    // https://github.com/Clariity/react-chessboard/tree/main/stories/stockfish
+    // https://github.com/Clariity/react-chessboard/tree/main/docs/stockfish
     stockfish.current = new Worker("/engine/stockfish.wasm.js");
 
     if (stockfish.current !== null) {
@@ -68,41 +86,42 @@ export default function Evaluation({ position, width, evaluation }: EvaluationPr
   }, [position]);
 
   return (
-    <div className="flex flex-col">
-      <p>Engine Evaluation: {evaluation.at(-1)}</p>
-      <div className="bg-slate-400 w-full">
-        <ChartContainer
+    <div ref={containerRef} className="flex min-w-0 flex-col">
+      <div className="mb-1 flex items-baseline justify-between">
+        <span className="text-xs font-medium text-[#57503F]">局面评估</span>
+        <span className="font-serif text-xl font-bold leading-none text-[#1F241F]">{evaluation.at(-1)}</span>
+      </div>
+      <div className="w-full">
+        <LineChart
           series={[
             {
               type: "line",
               data: evaluation,
               area: true,
               baseline: 0,
+              color: "#B0782C",
+              showMark: (params) => params.index === evaluation.length - 1,
             },
           ]}
-          width={width ?? 200}
-          height={width ? width * 0.475 : 150}
+          width={chartWidth}
+          height={96}
+          margin={{ top: 6, bottom: 6, left: 8, right: 8 }}
           xAxis={[
             {
-              data:
-                evaluation.length > 20 ? evaluation.map((_, index) => index) : Array.from({ length: 50 }, (_, index) => index),
+              data: evaluation.map((_, index) => index),
+              disableLine: true,
+              disableTicks: true,
             },
           ]}
           yAxis={[
             {
               min: Math.min(Math.min(...evaluation), -1) - 1,
               max: Math.max(Math.max(...evaluation), 1) + 1,
-              colorMap: {
-                type: "piecewise",
-                thresholds: [0],
-                colors: ["black", "white"],
-              },
-              domainLimit: "nice",
+              disableLine: true,
+              disableTicks: true,
             },
           ]}
-        >
-          <LinePlot />
-        </ChartContainer>
+        />
       </div>
     </div>
   );
