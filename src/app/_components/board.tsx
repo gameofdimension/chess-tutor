@@ -78,9 +78,10 @@ export default function Board() {
       .trim();
 
   // movetext plus an ASCII rendering of the board so the coach can reason
-  // about the current position, not just the move history
+  // about the current position, not just the move history; the round stamp
+  // makes snapshot ordering explicit in a multi-turn conversation
   const positionContextOf = (g: Chess): string =>
-    `Moves: ${movetextOf(g) || "(opening)"}\n\nBoard:\n${g.ascii()}`;
+    `[Position snapshot 局面快照 · 第 ${Math.ceil(g.history().length / 2)} 回合后]\nMoves: ${movetextOf(g) || "(opening)"}\nBoard:\n${g.ascii()}`;
 
   const submitToCoach = (content: string): void => {
     if (inFlightRef.current) {
@@ -160,7 +161,7 @@ export default function Board() {
                 // last, the player's move second-to-last
                 const history = game.history();
                 const myMove = history.at(-2) ?? "？";
-                submitToCoach(`我走了 ${myMove}，对手回了 ${move}。\n\n${positionContextOf(game)}`);
+                submitToCoach(`我走了 ${myMove}，对手回了 ${move}。\n\n${positionContextOf(game)}\n\nLegal Moves: ${game.moves().join(", ")}`);
               } catch (e) {
                 console.error(e);
 
@@ -174,7 +175,7 @@ export default function Board() {
 
                 const history = game.history();
                 const myMove = history.at(-2) ?? "？";
-                submitToCoach(`我走了 ${myMove}，对手回了 ${newMove.san}。\n\n${positionContextOf(game)}`);
+                submitToCoach(`我走了 ${myMove}，对手回了 ${newMove.san}。\n\n${positionContextOf(game)}\n\nLegal Moves: ${game.moves().join(", ")}`);
               }
             })
             .catch((e) => {
@@ -504,7 +505,10 @@ export default function Board() {
 
       {/* scoresheet rail: evaluation on top, move record, actions at the
           bottom within easy reach (like the chat input) */}
-      <aside className="paper flex h-full w-[210px] shrink-0 flex-col gap-4 rounded-xl border border-[#D8D0BC] p-4 text-[#1F241F] shadow-[0_10px_30px_rgba(0,0,0,0.35)]">
+      <aside
+        style={{ height: boardWidth > 0 ? boardWidth : undefined }}
+        className="paper flex min-h-[520px] w-[210px] shrink-0 flex-col gap-4 rounded-xl border border-[#D8D0BC] p-4 text-[#1F241F] shadow-[0_10px_30px_rgba(0,0,0,0.35)]"
+      >
         <div className="border-b border-[#E2DAC6] pb-3">
           <Evaluation evaluation={evaluation} position={game.fen()} />
         </div>
@@ -568,7 +572,11 @@ export default function Board() {
         </div>
       </aside>
 
-      <aside data-panel="chat" className="flex h-full w-[360px] shrink-0 flex-col xl:w-[420px]">
+      <aside
+        data-panel="chat"
+        style={{ height: boardWidth > 0 ? boardWidth : undefined }}
+        className="flex min-h-[520px] w-[360px] shrink-0 flex-col xl:w-[420px]"
+      >
         <Tutor
           messages={messages}
           send={askCoach}

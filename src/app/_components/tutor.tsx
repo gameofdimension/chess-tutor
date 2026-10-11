@@ -20,6 +20,7 @@ export default function Tutor({ messages, send, isLoading, pending }: TutorProps
   const { gameOver } = useGameStore();
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [input, setInput] = useState("");
 
   useEffect(() => {
@@ -39,6 +40,11 @@ export default function Tutor({ messages, send, isLoading, pending }: TutorProps
 
     send(text);
     setInput("");
+
+    // programmatic clearing bypasses onChange - reset the auto-grown height
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+    }
   };
 
   return (
@@ -112,13 +118,27 @@ export default function Tutor({ messages, send, isLoading, pending }: TutorProps
         </ol>
       </div>
 
-      <form className="flex gap-2 border-t border-[#D8D0BC] p-3" onSubmit={submitQuestion}>
-        <input
-          type="text"
-          className="flex-1 rounded-lg border border-[#C9C0AA] bg-white px-3 py-2 text-sm text-[#1F241F] outline-none transition placeholder:text-[#8A8271] focus:border-[#B0782C] focus:ring-2 focus:ring-[#B0782C]/20"
-          placeholder={isLoading ? "教练正在回复…现在发送的消息将排队" : "问教练任何问题，Enter 发送…"}
+      <form className="flex items-end gap-2 border-t border-[#D8D0BC] p-3" onSubmit={submitQuestion}>
+        <textarea
+          ref={textareaRef}
+          rows={1}
+          className="max-h-32 min-h-[38px] flex-1 resize-none rounded-lg border border-[#C9C0AA] bg-white px-3 py-2 text-sm leading-5 text-[#1F241F] outline-none transition placeholder:text-[#8A8271] focus:border-[#B0782C] focus:ring-2 focus:ring-[#B0782C]/20"
+          placeholder={isLoading ? "教练正在回复…现在发送的消息将排队" : "问教练任何问题，Enter 发送，Shift+Enter 换行…"}
           value={input}
-          onChange={(event) => setInput(event.target.value)}
+          onChange={(event) => {
+            setInput(event.target.value);
+
+            // auto-grow with content, clamped by max-h
+            event.target.style.height = "auto";
+            event.target.style.height = `${event.target.scrollHeight}px`;
+          }}
+          onKeyDown={(event) => {
+            // Enter sends; Shift+Enter inserts a newline
+            if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+              event.preventDefault();
+              event.currentTarget.form?.requestSubmit();
+            }
+          }}
           disabled={gameOver}
         />
         <button
