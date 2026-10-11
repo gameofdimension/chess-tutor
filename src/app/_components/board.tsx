@@ -13,11 +13,28 @@ import { useGameStore } from "../../lib/state/use-game-store";
 export default function Board() {
   const { messages, append, stop, isLoading, setMessages } = useChat({
     api: "/api/bot/chat",
+    // the coach route returns a plain text stream and appends a visible
+    // warning itself when the analysis was truncated or timed out
+    streamProtocol: "text",
+    onError: (error) => {
+      console.error("[coach] commentary request failed:", error);
+
+      // surface the failure in the panel (system role renders as a notice;
+      // must use setMessages - append would fire another API request)
+      setMessages((current) => [
+        ...current,
+        {
+          id: `coach-error-${Date.now()}`,
+          role: "system" as const,
+          content: "⚠️ Coach commentary failed (API error). Click Talk to retry.",
+        },
+      ]);
+    },
     initialMessages: [
       {
         id: "tutor-welcome",
         role: "assistant",
-        content: `Let's get better at Chess. You can **Click** on a piece to see it's valid moves, if you **Right Click** I'll tell about the valid moves. After you make a move, I'll analyze it and you'll have a chance to **Undo** your move and explore possible responses from your opponent by **Right Clicking** your opponent's pieces, before **Commit**ing to your move. Once you **Commit**, a move cannot be taken back.`,
+        content: `我们一起提高棋力吧。**单击**棋子可以查看它的合法着法；**右键**点击棋子，我会为你讲解这些着法。你走棋后我会进行分析，你可以点 **Undo** 悔棋，也可以**右键**对方的棋子研究它可能的应对，想清楚后再点 **Commit** 确认落子。一旦 **Commit**，这步棋就不能撤销了。`,
       },
     ],
   });
@@ -52,12 +69,17 @@ export default function Board() {
       .replace(/\[[^\]]*\]\s*/g, "")
       .trim();
 
+  // movetext plus an ASCII rendering of the board so the coach can reason
+  // about the current position, not just the move history
+  const positionContextOf = (g: Chess): string =>
+    `Moves: ${movetextOf(g) || "(opening)"}\n\nBoard:\n${g.ascii()}`;
+
   const analyzeBoard = (): void => {
     stop();
 
     append({
       role: "user",
-      content: `Please analyze the current state of the game.\n\n${movetextOf(game)}\n\nLegal Moves: ${game.moves().join(", ")}`,
+      content: `Please analyze the current state of the game.\n\n${positionContextOf(game)}\n\nLegal Moves: ${game.moves().join(", ")}`,
     });
   };
 
@@ -99,7 +121,7 @@ export default function Board() {
 
                 if (autogenerateCommentary) {
                   append({
-                    content: `My opponent played ${move}.\n\n${movetextOf(game)}`,
+                    content: `My opponent played ${move}.\n\n${positionContextOf(game)}`,
                     role: "user",
                   });
                 }
@@ -116,7 +138,7 @@ export default function Board() {
 
                 if (autogenerateCommentary) {
                   append({
-                    content: `My opponent played ${newMove.san}.\n\n${movetextOf(game)}`,
+                    content: `My opponent played ${newMove.san}.\n\n${positionContextOf(game)}`,
                     role: "user",
                   });
                 }
@@ -135,31 +157,31 @@ export default function Board() {
         if (game.isCheckmate()) {
           setGameOverState("Checkmate");
           append({
-            content: `Checkmate.\n\n${movetextOf(game)}`,
+            content: `Checkmate.\n\n${positionContextOf(game)}`,
             role: "system",
           });
         } else if (game.isDraw()) {
           setGameOverState("Draw");
           append({
-            content: `Draw.\n\n${movetextOf(game)}`,
+            content: `Draw.\n\n${positionContextOf(game)}`,
             role: "system",
           });
         } else if (game.isStalemate()) {
           setGameOverState("Stalemate");
           append({
-            content: `Stalemate.\n\n${movetextOf(game)}`,
+            content: `Stalemate.\n\n${positionContextOf(game)}`,
             role: "system",
           });
         } else if (game.isThreefoldRepetition()) {
           setGameOverState("Ended by Repetition");
           append({
-            content: `Ended by Repetition.\n\n${movetextOf(game)}`,
+            content: `Ended by Repetition.\n\n${positionContextOf(game)}`,
             role: "system",
           });
         } else if (game.isDrawByFiftyMoves()) {
           setGameOverState("Draw by Fifty Moves Rule");
           append({
-            content: `Draw by Fifty Moves Rule.\n\n${movetextOf(game)}`,
+            content: `Draw by Fifty Moves Rule.\n\n${positionContextOf(game)}`,
             role: "system",
           });
         }
@@ -177,7 +199,7 @@ export default function Board() {
       {
         id: "tutor-welcome",
         role: "assistant",
-        content: `Let's get better at Chess. You can **Click** on a piece to see it's valid moves, if you **Right Click** I'll tell about the valid moves. After you make a move, I'll analyze it and you'll have a chance to **Undo** your move and explore possible responses from your opponent by **Right Clicking** your opponent's pieces, before **Commit**ing to your move. Once you **Commit**, a move cannot be taken back.`,
+        content: `我们一起提高棋力吧。**单击**棋子可以查看它的合法着法；**右键**点击棋子，我会为你讲解这些着法。你走棋后我会进行分析，你可以点 **Undo** 悔棋，也可以**右键**对方的棋子研究它可能的应对，想清楚后再点 **Commit** 确认落子。一旦 **Commit**，这步棋就不能撤销了。`,
       },
     ]);
 
@@ -317,7 +339,7 @@ export default function Board() {
           append({
             content: `I moved the ${convertPieceName(selectedPiece)} ${moveFrom} to ${square} by playing: ${game
               .history()
-              .at(-1)}.\n\n${movetextOf(game)}\n\nLegal Moves: ${game.moves().join(", ")}`,
+              .at(-1)}.\n\n${positionContextOf(game)}\n\nLegal Moves: ${game.moves().join(", ")}`,
             role: "user",
           });
         }
@@ -352,7 +374,7 @@ export default function Board() {
             game.turn() === "w"
               ? `, but I'm not sure where I should put it.`
               : `, but I'm not sure where they might place it. Does moving this piece seem likely?`
-          }${game.history().length === 0 ? ` This is my opening move.` : ``}\n\n${movetextOf(game)}\n\nLegal Moves for ${square}: ${game.moves({ square, piece: pieceInfo.type }).join(", ")}`,
+          }${game.history().length === 0 ? ` This is my opening move.` : ``}\n\n${positionContextOf(game)}\n\nLegal Moves for ${square}: ${game.moves({ square, piece: pieceInfo.type }).join(", ")}`,
           role: "user",
         });
       }
@@ -380,6 +402,22 @@ export default function Board() {
 
     return () => window.removeEventListener("resize", updateBoardWidth);
   }, []);
+
+  // stopping an in-flight commentary stream (commit/undo/Talk) can leave an
+  // assistant message with no content once the stream settles - drop those
+  useEffect(() => {
+    if (isLoading) {
+      return;
+    }
+
+    setMessages((current) => {
+      const filtered = current.filter((message) => !(message.role === "assistant" && message.content === ""));
+
+      return filtered.length === current.length ? current : filtered;
+    });
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoading]);
 
   const lastMove = game.history({ verbose: true }).at(-1);
 

@@ -61,6 +61,22 @@ Open [http://localhost:3000](http://localhost:3000) with your browser interact w
 
 **Note**: There is currently a build warning `error TP1001 new Worker("/engine/stockfish.wasm.js") is not statically analyse-able`. Other folks have run into the same [issue with Next.js and Stockfish](https://stackoverflow.com/q/79250686/656011), but things still seem to run locally, so it's not a priority right now.
 
+### Logs & troubleshooting
+
+The terminal running `npm run dev` carries structured logs for both LLM routes:
+
+- `[coach]` — the analysis/commentary stream: `finish=<reason> <duration>s | tokens in=<n> out=<n> | chars=<n>`. `chars=0 (EMPTY RESPONSE)` means the model returned no visible text.
+- `[opponent]` — the opponent's move selection: `attempt=<n> finish=<reason> <duration>s | ... | raw="<model output>"`. `attempt=2` means the first try came back empty and was retried.
+
+Common failure patterns:
+
+- `finish=length` / `(TRUNCATED)` — the analysis hit the 64K token cap; a ⚠️ **被截断** warning is appended to the end of the coach bubble.
+- Analysis timeout (120s hard cap) — a ⚠️ **超时或被中断** warning is appended to the bubble; the partial answer stays visible.
+- `[coach] stream error ...` in the server log plus a `⚠️ Coach commentary failed` notice in the tutor panel — the API call itself failed (network, rate limit or provider outage); click **Talk** to retry.
+- `GENERATING RANDOM MOVE` in the server log — the opponent returned an unusable move and the client fell back to a random legal move.
+
+Client-side errors also appear in the browser DevTools console (`[coach] commentary request failed`).
+
 ### Learn More
 
 To learn more about Next.js, take a look at the following resources:
