@@ -8,6 +8,7 @@ import type { Chess } from "chess.js";
 import type { CustomSquareStyles, Piece, Square } from "react-chessboard/dist/chessboard/types";
 
 import Tutor from "./tutor";
+import Evaluation from "./evaluation";
 import { useGameStore } from "../../lib/state/use-game-store";
 
 export default function Board() {
@@ -26,7 +27,7 @@ export default function Board() {
         {
           id: `coach-error-${Date.now()}`,
           role: "system" as const,
-          content: "⚠️ Coach commentary failed (API error). Click Talk to retry.",
+          content: "⚠️ 教练评论请求失败（API 错误）。在下方输入框重新发送即可重试。",
         },
       ]);
     },
@@ -44,12 +45,12 @@ export default function Board() {
     playState,
     gameOver,
     gameOverState,
+    evaluation,
     undoMove,
     setPlayState,
     setGameOver,
     setGameOverState,
     newGame,
-    autogenerateCommentary,
     setEvaluation,
   } = useGameStore();
 
@@ -60,6 +61,13 @@ export default function Board() {
   const [moveTo, setMoveTo] = useState<Square | null>(null);
   const [selectedPiece, setSelectedPiece] = useState<Piece | null>(null);
   const [possibleMoves, setPossibleMoves] = useState<CustomSquareStyles>({});
+  const movesScrollRef = useRef<HTMLDivElement>(null);
+
+  // coach request queue: a generation already in flight is never interrupted;
+  // new messages wait here and are dispatched in order when it finishes
+  const [pendingQuestions, setPendingQuestions] = useState<{ id: string; content: string }[]>([]);
+  const inFlightRef = useRef(false);
+  const [drainTick, setDrainTick] = useState(0);
 
   // movetext without the PGN header tags (event/site/elo...) - the headers are
   // noise for the coach and leak the userAgent header to the LLM provider
@@ -74,19 +82,47 @@ export default function Board() {
   const positionContextOf = (g: Chess): string =>
     `Moves: ${movetextOf(g) || "(opening)"}\n\nBoard:\n${g.ascii()}`;
 
-  const analyzeBoard = (): void => {
-    stop();
+  const submitToCoach = (content: string): void => {
+    if (inFlightRef.current) {
+      setPendingQuestions((current) => [
+        ...current,
+        { id: `pending-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, content },
+      ]);
+      return;
+    }
 
-    append({
-      role: "user",
-      content: `Please analyze the current state of the game.\n\n${positionContextOf(game)}\n\nLegal Moves: ${game.moves().join(", ")}`,
-    });
+    inFlightRef.current = true;
+
+    append({ role: "user", content })
+      .catch(() => {})
+      .finally(() => {
+        inFlightRef.current = false;
+        setDrainTick((tick) => tick + 1);
+      });
+  };
+
+  // dispatch the next queued message once nothing is in flight
+  useEffect(() => {
+    if (inFlightRef.current || pendingQuestions.length === 0) {
+      return;
+    }
+
+    const [next, ...rest] = pendingQuestions;
+
+    setPendingQuestions(rest);
+    submitToCoach(next.content);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingQuestions, isLoading, drainTick]);
+
+  // free-form question to the coach: the player's text plus the current
+  // position context, so the question is self-contained even though the
+  // full history is also sent for follow-up reasoning
+  const askCoach = (text: string): void => {
+    submitToCoach(`${text}\n\n${positionContextOf(game)}\n\nLegal Moves: ${game.moves().join(", ")}`);
   };
 
   const commitToMove = (): void => {
     if (game.turn() === "b") {
-      stop();
-
       setMoveFrom(null);
       setMoveTo(null);
       setSelectedPiece(null);
@@ -119,12 +155,12 @@ export default function Board() {
               try {
                 game.move(move);
 
-                if (autogenerateCommentary) {
-                  append({
-                    content: `My opponent played ${move}.\n\n${positionContextOf(game)}`,
-                    role: "user",
-                  });
-                }
+                // automatic commentary on the full round (queues if another
+                // generation is still in flight); the opponent's reply is
+                // last, the player's move second-to-last
+                const history = game.history();
+                const myMove = history.at(-2) ?? "？";
+                submitToCoach(`我走了 ${myMove}，对手回了 ${move}。\n\n${positionContextOf(game)}`);
               } catch (e) {
                 console.error(e);
 
@@ -136,12 +172,9 @@ export default function Board() {
 
                 game.move(newMove);
 
-                if (autogenerateCommentary) {
-                  append({
-                    content: `My opponent played ${newMove.san}.\n\n${positionContextOf(game)}`,
-                    role: "user",
-                  });
-                }
+                const history = game.history();
+                const myMove = history.at(-2) ?? "？";
+                submitToCoach(`我走了 ${myMove}，对手回了 ${newMove.san}。\n\n${positionContextOf(game)}`);
               }
             })
             .catch((e) => {
@@ -155,33 +188,33 @@ export default function Board() {
         setGameOver(true);
 
         if (game.isCheckmate()) {
-          setGameOverState("Checkmate");
+          setGameOverState("将死");
           append({
-            content: `Checkmate.\n\n${positionContextOf(game)}`,
+            content: `将死。\n\n${positionContextOf(game)}`,
             role: "system",
           });
         } else if (game.isDraw()) {
-          setGameOverState("Draw");
+          setGameOverState("和棋");
           append({
-            content: `Draw.\n\n${positionContextOf(game)}`,
+            content: `和棋。\n\n${positionContextOf(game)}`,
             role: "system",
           });
         } else if (game.isStalemate()) {
-          setGameOverState("Stalemate");
+          setGameOverState("逼和");
           append({
-            content: `Stalemate.\n\n${positionContextOf(game)}`,
+            content: `逼和。\n\n${positionContextOf(game)}`,
             role: "system",
           });
         } else if (game.isThreefoldRepetition()) {
-          setGameOverState("Ended by Repetition");
+          setGameOverState("三次重复和棋");
           append({
-            content: `Ended by Repetition.\n\n${positionContextOf(game)}`,
+            content: `三次重复和棋。\n\n${positionContextOf(game)}`,
             role: "system",
           });
         } else if (game.isDrawByFiftyMoves()) {
-          setGameOverState("Draw by Fifty Moves Rule");
+          setGameOverState("五十回合规则和棋");
           append({
-            content: `Draw by Fifty Moves Rule.\n\n${positionContextOf(game)}`,
+            content: `五十回合规则和棋。\n\n${positionContextOf(game)}`,
             role: "system",
           });
         }
@@ -190,7 +223,9 @@ export default function Board() {
   };
 
   const restartGame = (): void => {
+    // a new game drops any in-flight generation and queued messages
     stop();
+    setPendingQuestions([]);
 
     newGame();
     setEvaluation([0.0]);
@@ -210,8 +245,6 @@ export default function Board() {
   };
 
   const undo = (): void => {
-    stop();
-
     undoMove();
 
     setMoveFrom(null);
@@ -252,40 +285,31 @@ export default function Board() {
     return true;
   };
 
+  // converts wP -> "白兵", bQ -> "黑后", etc. for the coach prompts
   const convertPieceName = (piece: Piece): string => {
     if (typeof piece === "undefined") {
       return "";
     }
 
-    const color = piece[0] === "w" ? "white" : "black";
+    const color = piece[0] === "w" ? "白" : "黑";
 
-    let pieceName = color;
-
-    // convert the wP to "white pawn" and bQ to "black queen", etc.
     const type = piece[1].toLowerCase();
 
     switch (type) {
       case "r":
-        pieceName += " rook";
-        break;
+        return `${color}车`;
       case "n":
-        pieceName += " knight";
-        break;
+        return `${color}马`;
       case "b":
-        pieceName += " bishop";
-        break;
+        return `${color}象`;
       case "q":
-        pieceName += " queen";
-        break;
+        return `${color}后`;
       case "k":
-        pieceName += " king";
-        break;
+        return `${color}王`;
       case "p":
       default:
-        pieceName += " pawn";
+        return `${color}兵`;
     }
-
-    return pieceName;
   };
 
   const onSquareClick = (square: Square, piece?: Piece): void => {
@@ -335,15 +359,6 @@ export default function Board() {
 
         game.move({ from: moveFrom, to: square });
 
-        if (autogenerateCommentary && selectedPiece !== null && game.turn() === "w") {
-          append({
-            content: `I moved the ${convertPieceName(selectedPiece)} ${moveFrom} to ${square} by playing: ${game
-              .history()
-              .at(-1)}.\n\n${positionContextOf(game)}\n\nLegal Moves: ${game.moves().join(", ")}`,
-            role: "user",
-          });
-        }
-
         setMoveFrom(null);
         setMoveTo(null);
       }
@@ -354,8 +369,6 @@ export default function Board() {
     const canMove = getMoveOptions(square);
 
     if (canMove) {
-      stop();
-
       const pieceInfo = game.get(square);
 
       if (typeof pieceInfo !== "undefined") {
@@ -367,16 +380,7 @@ export default function Board() {
           setPlayState("moving");
         }
 
-        append({
-          content: `I think ${game.turn() === "w" ? `I want to move` : `my opponent will move`} the ${convertPieceName(
-            piece
-          )} on ${square}${
-            game.turn() === "w"
-              ? `, but I'm not sure where I should put it.`
-              : `, but I'm not sure where they might place it. Does moving this piece seem likely?`
-          }${game.history().length === 0 ? ` This is my opening move.` : ``}\n\n${positionContextOf(game)}\n\nLegal Moves for ${square}: ${game.moves({ square, piece: pieceInfo.type }).join(", ")}`,
-          role: "user",
-        });
+        submitToCoach(`${game.turn() === "w" ? `我想走 ${square} 上的${convertPieceName(piece)}，但不确定放到哪里好。` : `对手可能会走 ${square} 上的${convertPieceName(piece)}，这步可能性大吗？`}${game.history().length === 0 ? `这是我的开局第一步。` : ``}\n\n${positionContextOf(game)}\n\nLegal Moves for ${square}: ${game.moves({ square, piece: pieceInfo.type }).join(", ")}`);
       }
     } else {
       if (game.turn() === "w") {
@@ -387,20 +391,26 @@ export default function Board() {
     }
   };
 
-  const updateBoardWidth = (): void => {
-    if (containerRef.current) {
-      setBoardWidth(Math.min(containerRef.current.clientHeight, containerRef.current.clientWidth));
-    }
-  };
-
+  // size the board from its actual available box (not just the window):
+  // the sibling strip grows/shrinks (move list appears, etc.) and a
+  // window-only listener would leave the board overflowing the container
   useEffect(() => {
-    updateBoardWidth();
+    const element = containerRef.current;
 
-    window.addEventListener("resize", updateBoardWidth);
+    if (!element) {
+      return;
+    }
+
+    const update = () => setBoardWidth(Math.min(element.clientHeight, element.clientWidth));
+
+    update();
+
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
 
     newGame();
 
-    return () => window.removeEventListener("resize", updateBoardWidth);
+    return () => observer.disconnect();
   }, []);
 
   // stopping an in-flight commentary stream (commit/undo/Talk) can leave an
@@ -428,9 +438,34 @@ export default function Board() {
       }
     : {};
 
+  const turnStatus = gameOver
+    ? "对局结束"
+    : computerThinking
+      ? "对手思考中…"
+      : game.turn() === "w"
+        ? "轮到你走棋（白方）"
+        : "走子待确认：Undo 或 Commit";
+
+  const actionButtonsDisabled = gameOver || game.turn() === "w";
+
+  // game record in scoresheet form: pairs of white/black moves
+  const moveHistory = game.history();
+  const movePairs: { n: number; w: string; b?: string }[] = [];
+
+  for (let i = 0; i < moveHistory.length; i += 2) {
+    movePairs.push({ n: i / 2 + 1, w: moveHistory[i], b: moveHistory[i + 1] });
+  }
+
+  // keep the scoresheet scrolled to the latest move
+  useEffect(() => {
+    if (movesScrollRef.current) {
+      movesScrollRef.current.scrollTop = movesScrollRef.current.scrollHeight;
+    }
+  }, [moveHistory.length]);
+
   return (
     <>
-      <div ref={containerRef} className="flex flex-col h-full w-3/4 justify-center items-center relative">
+      <section ref={containerRef} className="relative flex h-full min-w-0 flex-1 items-start justify-center">
         {boardWidth > 0 && (
           <Chessboard
             arePiecesDraggable={false}
@@ -440,37 +475,105 @@ export default function Board() {
             customSquareStyles={{ ...lastMoveStyles, ...possibleMoves }}
             boardWidth={boardWidth}
             customBoardStyle={{
-              margin: "auto",
+              borderRadius: "12px",
+              overflow: "hidden",
+              boxShadow: "0 18px 48px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.35)",
             }}
           />
         )}
+
         {computerThinking && (
-          <div className="absolute top-0 left-0 w-full h-full bg-black bg-opacity-50 flex justify-center items-center">
-            <Mosaic size="large" color="#31abcc" />
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/50">
+            <Mosaic size="large" color="#F2EDE0" />
           </div>
         )}
         {gameOver && (
-          <div className="absolute top-0 left-0 w-full h-full bg-black bg-opacity-50 flex justify-center items-center">
-            <div className="bg-white p-5 rounded-md">
-              <h2 className="text-2xl">{gameOverState}</h2>
-              <button onClick={restartGame} className="p-2 bg-blue-400 mt-5">
-                Restart
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+            <div className="paper rounded-xl border border-[#D8D0BC] p-8 text-center shadow-2xl">
+              <h2 className="font-serif text-2xl font-bold text-[#1F241F]">{gameOverState}</h2>
+              <button
+                onClick={restartGame}
+                className="mt-5 cursor-pointer rounded-lg bg-[#2F5A47] px-6 py-2 font-medium text-[#F2EDE0] shadow-sm transition-colors hover:bg-[#24483A]"
+              >
+                再来一局
               </button>
             </div>
           </div>
         )}
-      </div>
-      <aside className="flex flex-col h-screen w-1/4">
+      </section>
+
+      {/* scoresheet rail: evaluation on top, move record, actions at the
+          bottom within easy reach (like the chat input) */}
+      <aside className="paper flex h-full w-[210px] shrink-0 flex-col gap-4 rounded-xl border border-[#D8D0BC] p-4 text-[#1F241F] shadow-[0_10px_30px_rgba(0,0,0,0.35)]">
+        <div className="border-b border-[#E2DAC6] pb-3">
+          <Evaluation evaluation={evaluation} position={game.fen()} />
+        </div>
+
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="mb-1 grid grid-cols-[1.6rem_1fr_1fr] gap-1 text-[10px] font-medium text-[#57503F]">
+            <span>#</span>
+            <span className="text-center">白（你）</span>
+            <span className="text-center">黑（对手）</span>
+          </div>
+          <div ref={movesScrollRef} className="min-h-0 flex-1 overflow-y-auto font-mono text-xs leading-6">
+            {movePairs.length === 0 ? (
+              <span className="font-sans text-[#8A8271]">对局尚未开始</span>
+            ) : (
+              movePairs.map((pair, index) => (
+                <div
+                  key={pair.n}
+                  className={`grid grid-cols-[1.6rem_1fr_1fr] items-center gap-1 rounded px-1 ${
+                    index === movePairs.length - 1 ? "bg-[#F0E4C8]" : ""
+                  }`}
+                >
+                  <span className="text-[#8A8271]">{pair.n}.</span>
+                  <span className="rounded border border-[#E2DAC6] bg-white px-1.5 py-0.5 text-center text-[#1F241F]">
+                    {pair.w}
+                  </span>
+                  {pair.b ? (
+                    <span className="rounded bg-[#3A362C] px-1.5 py-0.5 text-center text-[#F2EDE0]">{pair.b}</span>
+                  ) : (
+                    <span />
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-2 border-t border-[#E2DAC6] pt-3">
+          <p className="text-center text-xs font-medium text-[#57503F]">{turnStatus}</p>
+          <button
+            disabled={actionButtonsDisabled}
+            onClick={commitToMove}
+            className={`rounded-lg px-4 py-2 text-sm font-medium text-[#F2EDE0] shadow-sm transition-colors ${
+              actionButtonsDisabled
+                ? "cursor-not-allowed bg-[#C9C0AA] text-[#8A8271]"
+                : "cursor-pointer bg-[#B3402A] hover:bg-[#993621]"
+            }`}
+          >
+            Commit
+          </button>
+          <button
+            disabled={actionButtonsDisabled}
+            onClick={undo}
+            className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
+              actionButtonsDisabled
+                ? "cursor-not-allowed border-[#DDD5C2] text-[#B0A88F]"
+                : "cursor-pointer border-[#C9C0AA] bg-transparent text-[#3A362C] hover:bg-[#E7E0CE]"
+            }`}
+          >
+            Undo
+          </button>
+        </div>
+      </aside>
+
+      <aside data-panel="chat" className="flex h-full w-[360px] shrink-0 flex-col xl:w-[420px]">
         <Tutor
           messages={messages}
-          playState={playState}
-          commit={commitToMove}
-          undo={undo}
-          analyze={analyzeBoard}
+          send={askCoach}
           isLoading={isLoading}
-          position={game.fen()}
-          turn={game.turn()}
-          stop={stop}
+          pending={pendingQuestions}
         />
       </aside>
     </>

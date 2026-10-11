@@ -1,4 +1,5 @@
 import { streamText } from "ai";
+import type { CoreMessage } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 
 import { ANALYZER_PROMPT } from "../../../../lib/prompts";
@@ -11,6 +12,13 @@ const ANALYSIS_TIMEOUT_MS = 120_000;
 export async function POST(req: Request) {
   const { messages } = await req.json();
 
+  // free-form multi-turn chat: the client sends the whole conversation;
+  // keep only user/assistant turns (drop system notices injected into
+  // the panel) so the coach can answer follow-up questions with context
+  const history: CoreMessage[] = (messages as CoreMessage[]).filter(
+    (message) => message.role === "user" || message.role === "assistant"
+  );
+
   const openai = createOpenAI(API_CONFIG);
   const startedAt = Date.now();
 
@@ -21,7 +29,8 @@ export async function POST(req: Request) {
       reasoningEffort: "low",
     }),
     system: ANALYZER_PROMPT,
-    messages: [messages.at(-1)],
+    // full conversation history so follow-ups have context
+    messages: history,
     maxTokens: 65536,
     abortSignal: AbortSignal.timeout(ANALYSIS_TIMEOUT_MS),
     onError: ({ error }) => {
@@ -72,7 +81,7 @@ export async function POST(req: Request) {
           return;
         }
 
-        safeEnqueue("\n\n---\n\n⚠️ **分析超时或被中断**，以上内容可能不完整。点击 Talk 可重试。");
+        safeEnqueue("\n\n---\n\n⚠️ **分析超时或被中断**，以上内容可能不完整。重新提问即可重试。");
         closed = true;
         controller.close();
         return;
@@ -81,7 +90,7 @@ export async function POST(req: Request) {
       const finishReason = await result.finishReason;
 
       if (finishReason === "length") {
-        safeEnqueue("\n\n---\n\n⚠️ **分析因达到长度上限被截断**，以上内容可能不完整。点击 Talk 可重试。");
+        safeEnqueue("\n\n---\n\n⚠️ **分析因达到长度上限被截断**，以上内容可能不完整。重新提问即可重试。");
       }
 
       closed = true;

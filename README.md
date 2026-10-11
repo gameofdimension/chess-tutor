@@ -72,7 +72,7 @@ Common failure patterns:
 
 - `finish=length` / `(TRUNCATED)` — the analysis hit the 64K token cap; a ⚠️ **被截断** warning is appended to the end of the coach bubble.
 - Analysis timeout (120s hard cap) — a ⚠️ **超时或被中断** warning is appended to the bubble; the partial answer stays visible.
-- `[coach] stream error ...` in the server log plus a `⚠️ Coach commentary failed` notice in the tutor panel — the API call itself failed (network, rate limit or provider outage); click **Talk** to retry.
+- `[coach] stream error ...` in the server log plus a `⚠️ Coach commentary failed` notice in the tutor panel — the API call itself failed (network, rate limit or provider outage); send a message in the tutor input to retry.
 - `GENERATING RANDOM MOVE` in the server log — the opponent returned an unusable move and the client fell back to a random legal move.
 
 Client-side errors also appear in the browser DevTools console (`[coach] commentary request failed`).

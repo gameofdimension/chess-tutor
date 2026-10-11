@@ -7,7 +7,7 @@ export interface MessageBubbleProps {
 
 export default function MessageBubble({ content }: MessageBubbleProps) {
   return (
-    <div className="coach-message rounded-sm p-5 border-stone-400 border-2">
+    <div className="coach-message rounded-xl border border-[#E2DAC6] bg-white p-4">
       <ReactMarkdown rehypePlugins={[[rehypeExternalLinks, { target: "_blank", rel: ["nofollow", "noopener", "noreferrer"] }]]}>
         {content}
       </ReactMarkdown>

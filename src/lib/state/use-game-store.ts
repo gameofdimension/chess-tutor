@@ -10,7 +10,6 @@ export type GameStoreState = {
   playState: GameState;
   gameOver: boolean;
   gameOverState: string;
-  autogenerateCommentary: boolean;
 };
 
 export type GameStoreActions = {
@@ -23,8 +22,6 @@ export type GameStoreActions = {
   setPlayState: (state: GameState) => void;
   setGameOver: (isOver: boolean) => void;
   setGameOverState: (state: string) => void;
-  toggleAutogenerateCommentary: () => void;
-  setAutogenerateCommentary: (autogenerateCommentary: boolean) => void;
 };
 
 export type GameStore = GameStoreState & GameStoreActions;
@@ -37,7 +34,6 @@ const initialState: GameStoreState = {
   playState: "choosing",
   gameOver: false,
   gameOverState: "",
-  autogenerateCommentary: false,
 };
 
 export const useGameStore = create<GameStore>((set) => ({
@@ -120,6 +116,4 @@ export const useGameStore = create<GameStore>((set) => ({
   setPlayState: (playState) => set({ playState }),
   setGameOver: (gameOver) => set({ gameOver }),
   setGameOverState: (gameOverState) => set({ gameOverState }),
-  toggleAutogenerateCommentary: () => set((state) => ({ autogenerateCommentary: !state.autogenerateCommentary })),
-  setAutogenerateCommentary: (autogenerateCommentary) => set({ autogenerateCommentary }),
 }));
